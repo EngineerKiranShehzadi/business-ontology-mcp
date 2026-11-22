@@ -1,0 +1,3 @@
+order_id,customer_id,order_date,status
+O100,C001,2026-11-20,shipped
+O101,C002,2026-11-21,processing

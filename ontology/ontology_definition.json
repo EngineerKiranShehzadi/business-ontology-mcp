@@ -1,0 +1,53 @@
+{
+  "ontology_name": "Small Sales Ontology",
+  "ontology_version": "1.0",
+  "entities": {
+    "Customer": {
+      "description": "A person or organization that places orders.",
+      "properties": ["customer_id", "name", "status"]
+    },
+    "Order": {
+      "description": "A purchase request created by a customer.",
+      "properties": ["order_id", "customer_id", "order_date", "status"]
+    },
+    "Product": {
+      "description": "An item that can be included in an order.",
+      "properties": ["product_id", "name", "category", "price"]
+    }
+  },
+  "relationships": [
+    {
+      "name": "PLACES",
+      "from": "Customer",
+      "to": "Order",
+      "description": "A customer creates an order."
+    },
+    {
+      "name": "CONTAINS",
+      "from": "Order",
+      "to": "Product",
+      "description": "An order includes a product."
+    }
+  ],
+  "sample_facts": {
+    "customers": [
+      {"customer_id": "C001", "name": "Avery Morgan", "status": "active"},
+      {"customer_id": "C002", "name": "Jordan Lee", "status": "active"}
+    ],
+    "orders": [
+      {"order_id": "O100", "customer_id": "C001", "order_date": "2026-11-20", "status": "shipped"},
+      {"order_id": "O101", "customer_id": "C002", "order_date": "2026-11-21", "status": "processing"}
+    ],
+    "products": [
+      {"product_id": "P100", "name": "Notebook", "category": "Office", "price": 12.50},
+      {"product_id": "P200", "name": "Keyboard", "category": "Technology", "price": 48.00}
+    ],
+    "edges": [
+      {"from": "C001", "to": "O100", "relationship": "PLACES"},
+      {"from": "C002", "to": "O101", "relationship": "PLACES"},
+      {"from": "O100", "to": "P100", "relationship": "CONTAINS"},
+      {"from": "O100", "to": "P200", "relationship": "CONTAINS"},
+      {"from": "O101", "to": "P100", "relationship": "CONTAINS"}
+    ]
+  }
+}

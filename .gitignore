@@ -1,0 +1,23 @@
+# Python environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local secrets and environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local database/runtime data
+neo4j_data/
+postgres_data/
+*.sqlite3
+
+# Editors and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

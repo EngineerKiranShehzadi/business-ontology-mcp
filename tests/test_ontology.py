@@ -4,11 +4,11 @@ Tests use the local ontology as the baseline and temporary directories for sourc
 Each test checks behavior, not just documentation text.
 """
 
-from ontology.adapter import OntologyAdapter
-from ontology.graph import OntologyGraph
+from models import OntologyAdapter
+from graph import OntologyGraph
 
 
-ONTOLOGY_PATH = "ontology/ontology_definition.json"
+ONTOLOGY_PATH = "data/ontology.json"
 
 
 def test_ontology_loads_and_validates():
@@ -44,7 +44,7 @@ def test_query_order_product_facts():
 
 def test_networkx_store_status_and_interface():
     ontology = OntologyAdapter(ONTOLOGY_PATH).load()
-    from ontology.store import NetworkXGraphStore
+    from graph import NetworkXGraphStore
 
     store = NetworkXGraphStore(ontology)
     status = store.status()
@@ -56,7 +56,7 @@ def test_networkx_store_status_and_interface():
 
 
 def test_csv_adapter_loads_facts(tmp_path):
-    from ontology.csv_adapter import CSVAdapter
+    from sources import CSVAdapter
 
     (tmp_path / "customers.csv").write_text("customer_id,name,status\nC001,Avery Morgan,active\n", encoding="utf-8")
     (tmp_path / "orders.csv").write_text("order_id,customer_id,order_date,status\nO100,C001,2026-11-20,shipped\n", encoding="utf-8")
@@ -66,14 +66,14 @@ def test_csv_adapter_loads_facts(tmp_path):
     base = OntologyAdapter(ONTOLOGY_PATH).load()
     loaded = CSVAdapter(tmp_path).load(base)
 
-    assert len(loaded.sample_facts.customers) == 1
-    assert len(loaded.sample_facts.orders) == 1
-    assert len(loaded.sample_facts.products) == 2
-    assert len(loaded.sample_facts.edges) == 3
+    assert len(loaded.facts.rows("Customer")) == 1
+    assert len(loaded.facts.rows("Order")) == 1
+    assert len(loaded.facts.rows("Product")) == 2
+    assert len(loaded.facts.edges) == 3
 
 
 def test_document_adapter_loads_json(monkeypatch, tmp_path):
-    from ontology.document_adapter import DocumentAdapter
+    from documents import DocumentAdapter
 
     (tmp_path / "example.json").write_text(
         '{"customers":[{"customer_id":"C001","name":"Avery Morgan","status":"active"}],'
@@ -86,13 +86,13 @@ def test_document_adapter_loads_json(monkeypatch, tmp_path):
     base = OntologyAdapter(ONTOLOGY_PATH).load()
     loaded = DocumentAdapter(tmp_path).load(base)
 
-    assert len(loaded.sample_facts.customers) == 1
-    assert len(loaded.sample_facts.products) == 1
+    assert len(loaded.facts.rows("Customer")) == 1
+    assert len(loaded.facts.rows("Product")) == 1
 
 
 def test_http_json_adapter_loads_payload(monkeypatch):
-    import ontology.http_adapter as http_module
-    from ontology.http_adapter import HTTPJSONAdapter
+    import sources as http_module
+    from sources import HTTPJSONAdapter
 
     payload = {
         "customers": [{"customer_id": "C001", "name": "Avery Morgan", "status": "active"}],
@@ -120,19 +120,19 @@ def test_http_json_adapter_loads_payload(monkeypatch):
     base = OntologyAdapter(ONTOLOGY_PATH).load()
     loaded = HTTPJSONAdapter("http://example.test/ontology", timeout_seconds=2).load(base)
 
-    assert len(loaded.sample_facts.products) == 1
+    assert len(loaded.facts.rows("Product")) == 1
 
 
 def test_csv_adapter_implements_shared_source_interface():
-    from ontology.sources import OntologySource
-    from ontology.csv_adapter import CSVAdapter
+    from sources import OntologySource
+    from sources import CSVAdapter
 
     assert issubclass(CSVAdapter, OntologySource)
     assert CSVAdapter.name == "csv"
 
 
 def test_semantic_reasoner_derives_customer_purchases():
-    from ontology.reasoning import SemanticReasoner
+    from reasoning import SemanticReasoner
 
     ontology = OntologyAdapter(ONTOLOGY_PATH).load()
     result = SemanticReasoner(ontology).derive_facts(entity_id="C001")
@@ -143,7 +143,7 @@ def test_semantic_reasoner_derives_customer_purchases():
 
 
 def test_shared_source_rejects_unknown_relationship():
-    from ontology.sources import build_ontology_from_payload
+    from sources import build_ontology_from_payload
 
     base = OntologyAdapter(ONTOLOGY_PATH).load()
     try:
@@ -162,7 +162,7 @@ def test_shared_source_rejects_unknown_relationship():
 
 
 def test_shared_source_rejects_dangling_edge():
-    from ontology.sources import build_ontology_from_payload
+    from sources import build_ontology_from_payload
 
     base = OntologyAdapter(ONTOLOGY_PATH).load()
     try:
@@ -181,7 +181,7 @@ def test_shared_source_rejects_dangling_edge():
 
 
 def test_document_adapter_loads_jsonl(tmp_path):
-    from ontology.document_adapter import DocumentAdapter
+    from documents import DocumentAdapter
 
     (tmp_path / "facts.jsonl").write_text(
         '{"customers":[{"customer_id":"C001","name":"Avery Morgan","status":"active"}]}'
@@ -198,13 +198,13 @@ def test_document_adapter_loads_jsonl(tmp_path):
     base = OntologyAdapter(ONTOLOGY_PATH).load()
     loaded = DocumentAdapter(tmp_path).load(base)
 
-    assert len(loaded.sample_facts.customers) == 1
-    assert len(loaded.sample_facts.orders) == 1
-    assert len(loaded.sample_facts.products) == 1
+    assert len(loaded.facts.rows("Customer")) == 1
+    assert len(loaded.facts.rows("Order")) == 1
+    assert len(loaded.facts.rows("Product")) == 1
 
 
 def test_document_adapter_extracts_txt_with_provenance(tmp_path):
-    from ontology.document_adapter import DocumentAdapter
+    from documents import DocumentAdapter
 
     (tmp_path / "facts.txt").write_text(
         "Customer C001: Avery Morgan | status=active\n"
@@ -219,17 +219,17 @@ def test_document_adapter_extracts_txt_with_provenance(tmp_path):
     adapter = DocumentAdapter(tmp_path)
     loaded = adapter.load(base)
 
-    assert len(loaded.sample_facts.customers) == 1
-    assert len(loaded.sample_facts.orders) == 1
-    assert len(loaded.sample_facts.products) == 1
-    assert len(loaded.sample_facts.edges) == 2
+    assert len(loaded.facts.rows("Customer")) == 1
+    assert len(loaded.facts.rows("Order")) == 1
+    assert len(loaded.facts.rows("Product")) == 1
+    assert len(loaded.facts.edges) == 2
     assert adapter.mapping_report["mapped_facts"] == 5
     assert adapter.mapping_report["provenance"][0]["source"] == "facts.txt"
     assert adapter.mapping_report["provenance"][0]["line"] == 1
 
 
 def test_document_adapter_extracts_md_and_reports_unmapped(tmp_path):
-    from ontology.document_adapter import DocumentAdapter
+    from documents import DocumentAdapter
 
     (tmp_path / "notes.md").write_text(
         "# Sales notes\n"
@@ -242,14 +242,14 @@ def test_document_adapter_extracts_md_and_reports_unmapped(tmp_path):
     adapter = DocumentAdapter(tmp_path)
     loaded = adapter.load(base)
 
-    assert len(loaded.sample_facts.customers) == 1
+    assert len(loaded.facts.rows("Customer")) == 1
     assert adapter.mapping_report["unmapped_content"]
     assert adapter.mapping_report["unmapped_content"][0]["source"] == "notes.md"
 
 
 def test_document_adapter_extracts_docx(tmp_path):
     from docx import Document
-    from ontology.document_adapter import DocumentAdapter
+    from documents import DocumentAdapter
 
     doc = Document()
     doc.add_paragraph("Customer C001: Avery Morgan | status=active")
@@ -260,14 +260,14 @@ def test_document_adapter_extracts_docx(tmp_path):
     adapter = DocumentAdapter(tmp_path)
     loaded = adapter.load(base)
 
-    assert len(loaded.sample_facts.customers) == 1
-    assert len(loaded.sample_facts.products) == 1
+    assert len(loaded.facts.rows("Customer")) == 1
+    assert len(loaded.facts.rows("Product")) == 1
     assert adapter.mapping_report["provenance"][0]["format"] == ".docx"
 
 
 def test_document_adapter_extracts_pdf_with_page_provenance(monkeypatch, tmp_path):
     import pypdf
-    from ontology.document_adapter import DocumentAdapter
+    from documents import DocumentAdapter
 
     class FakePage:
         def extract_text(self):
@@ -289,16 +289,16 @@ def test_document_adapter_extracts_pdf_with_page_provenance(monkeypatch, tmp_pat
     adapter = DocumentAdapter(tmp_path)
     loaded = adapter.load(base)
 
-    assert len(loaded.sample_facts.customers) == 1
-    assert len(loaded.sample_facts.orders) == 1
-    assert len(loaded.sample_facts.products) == 1
-    assert len(loaded.sample_facts.edges) == 2
+    assert len(loaded.facts.rows("Customer")) == 1
+    assert len(loaded.facts.rows("Order")) == 1
+    assert len(loaded.facts.rows("Product")) == 1
+    assert len(loaded.facts.edges) == 2
     assert adapter.mapping_report["provenance"][0]["source"] == "facts.pdf"
     assert adapter.mapping_report["provenance"][0]["page"] == 1
 
 
 def test_document_adapter_reports_unmapped_when_no_facts_can_be_mapped(tmp_path):
-    from ontology.document_adapter import DocumentAdapter, DocumentMappingError
+    from documents import DocumentAdapter, DocumentMappingError
 
     (tmp_path / "unsupported.txt").write_text(
         "Customer C001 was mentioned but status and name are unclear.\n",
@@ -317,7 +317,7 @@ def test_document_adapter_reports_unmapped_when_no_facts_can_be_mapped(tmp_path)
 
 
 def test_document_adapter_rejects_dangling_free_text_edge(tmp_path):
-    from ontology.document_adapter import DocumentAdapter
+    from documents import DocumentAdapter
 
     (tmp_path / "facts.txt").write_text(
         "Customer C001: Avery Morgan | status=active\n"

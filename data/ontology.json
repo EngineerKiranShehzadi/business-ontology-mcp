@@ -1,18 +1,21 @@
 {
   "ontology_name": "Small Sales Ontology",
-  "ontology_version": "1.0",
+  "ontology_version": "1.1",
   "entities": {
     "Customer": {
       "description": "A person or organization that places orders.",
-      "properties": ["customer_id", "name", "status"]
+      "properties": {"customer_id": "string", "name": "string", "status": "string"},
+      "id_field": "customer_id"
     },
     "Order": {
       "description": "A purchase request created by a customer.",
-      "properties": ["order_id", "customer_id", "order_date", "status"]
+      "properties": {"order_id": "string", "customer_id": "ref:Customer", "order_date": "date", "status": "string"},
+      "id_field": "order_id"
     },
     "Product": {
       "description": "An item that can be included in an order.",
-      "properties": ["product_id", "name", "category", "price"]
+      "properties": {"product_id": "string", "name": "string", "category": "string", "price": "number"},
+      "id_field": "product_id"
     }
   },
   "relationships": [
@@ -26,10 +29,18 @@
       "name": "CONTAINS",
       "from": "Order",
       "to": "Product",
-      "description": "An order includes a product."
+      "description": "An order includes a product.",
+      "source": {"table": "order_items", "from_column": "order_id", "to_column": "product_id"}
     }
   ],
-  "sample_facts": {
+  "rules": [
+    {
+      "name": "PURCHASES",
+      "path": ["PLACES", "CONTAINS"],
+      "description": "Customer PLACES Order CONTAINS Product => Customer PURCHASES Product"
+    }
+  ],
+  "facts": {
     "customers": [
       {"customer_id": "C001", "name": "Avery Morgan", "status": "active"},
       {"customer_id": "C002", "name": "Jordan Lee", "status": "active"}

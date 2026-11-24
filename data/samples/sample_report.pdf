@@ -1,0 +1,60 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 862 >>
+stream
+BT /F1 11 Tf
+1 0 0 1 72 740 Tm (Customers) Tj
+1 0 0 1 72 720 Tm (customer_id) Tj
+1 0 0 1 200 720 Tm (name) Tj
+1 0 0 1 340 720 Tm (status) Tj
+1 0 0 1 72 700 Tm (C001) Tj
+1 0 0 1 200 700 Tm (Avery Morgan) Tj
+1 0 0 1 340 700 Tm (active) Tj
+1 0 0 1 72 680 Tm (C002) Tj
+1 0 0 1 200 680 Tm (Jordan Lee) Tj
+1 0 0 1 340 680 Tm (active) Tj
+1 0 0 1 72 640 Tm (Orders) Tj
+1 0 0 1 72 620 Tm (order_id) Tj
+1 0 0 1 200 620 Tm (customer_id) Tj
+1 0 0 1 340 620 Tm (order_date) Tj
+1 0 0 1 460 620 Tm (total) Tj
+1 0 0 1 72 600 Tm (O100) Tj
+1 0 0 1 200 600 Tm (C001) Tj
+1 0 0 1 340 600 Tm (2026-11-20) Tj
+1 0 0 1 460 600 Tm (60.50) Tj
+1 0 0 1 72 580 Tm (O101) Tj
+1 0 0 1 200 580 Tm (C002) Tj
+1 0 0 1 340 580 Tm (2026-11-21) Tj
+1 0 0 1 460 580 Tm (12.50) Tj
+1 0 0 1 72 560 Tm (O102) Tj
+1 0 0 1 200 560 Tm (C001) Tj
+1 0 0 1 340 560 Tm (2026-11-22) Tj
+1 0 0 1 460 560 Tm (48.00) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001154 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1222
+%%EOF

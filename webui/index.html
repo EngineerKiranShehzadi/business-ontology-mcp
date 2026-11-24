@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ontology Explorer</title>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  body {
+    font-family: "Hanken Grotesk", Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.45;
+    color: black;
+    background: white;
+    max-width: 1040px;
+    margin: 24px auto;
+    padding: 0 20px 60px 20px;
+  }
+  h1 { font-size: 24px; margin: 0; }
+  h2 { font-size: 21px; margin: 22px 0 8px 0; }
+  h3 { font-size: 16px; margin: 20px 0 6px 0; }
+  p { margin: 8px 0; }
+
+  /* top bar + menu */
+  #top { display: flex; justify-content: space-between; align-items: center; }
+  #menu { border-top: 1px solid black; border-bottom: 1px solid black; margin: 16px 0 6px 0; }
+  #menu a {
+    display: inline-block;
+    padding: 9px 2px 7px 2px;
+    margin-right: 20px;
+    color: black;
+    cursor: pointer;
+    text-decoration: none;
+    border-bottom: 3px solid white;
+  }
+  #menu a:hover { border-bottom-color: #bbbbbb; }
+  #menu a.active { font-weight: bold; border-bottom-color: black; }
+  #menu .divider { display: inline-block; width: 1px; height: 16px; background: #aaaaaa; margin: 0 20px 0 0; vertical-align: middle; }
+
+  /* tables */
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid black; padding: 6px 9px; text-align: left; vertical-align: top; overflow-wrap: break-word; }
+  th { background: #eeeeee; }
+  th[data-col] { cursor: pointer; user-select: none; }
+  th[data-col]:hover { background: #dddddd; }
+  tr[data-id] { cursor: pointer; }
+  tr[data-id]:hover { background: #f1f1f1; }
+  tr.selected, tr.selected:hover { background: black; color: white; }
+  .box { max-height: 400px; overflow: auto; border: 1px solid black; }
+  .box table { border: none; }
+  .box th { position: sticky; top: 0; }
+  .box th, .box td { border-top: none; }
+
+  /* form stuff */
+  button { font-family: inherit; font-size: 14px; border: 1px solid black; background: white; padding: 5px 13px; cursor: pointer; }
+  button:hover { background: black; color: white; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  input, select { font-family: inherit; font-size: 14px; border: 1px solid black; padding: 4px 7px; background: white; }
+  input:focus, select:focus, button:focus { outline: 2px solid #888888; outline-offset: 1px; }
+  .error { border: 1px solid black; padding: 9px 12px; margin: 12px 0; font-weight: bold; }
+  .small { color: #555555; font-size: 13px; }
+  .link { color: black; text-decoration: underline; cursor: pointer; }
+  .link:hover { background: #eeeeee; }
+  .row { margin: 12px 0; }
+
+  /* record details */
+  #detail { margin-top: 22px; border: 1px solid black; padding: 4px 16px 14px 16px; }
+  #detail table { width: auto; min-width: 50%; }
+  #detail td { overflow-wrap: anywhere; }
+
+  /* graph */
+  .graphbox { border: 1px solid black; background: #fafafa; max-height: 520px; overflow: auto; }
+  svg { display: block; width: 100%; }
+  svg text { font-family: "Hanken Grotesk", Arial, sans-serif; fill: black; }
+  .coltitle { font-weight: bold; font-size: 13px; }
+  .edge { fill: none; stroke: #aaaaaa; stroke-width: 1.5; }
+  .edge.hot { stroke: black; stroke-width: 2.5; }
+  .edgelabel { font-size: 10px; fill: #666666; paint-order: stroke; stroke: #fafafa; stroke-width: 4px; }
+  .edgelabel.hot { fill: black; font-weight: bold; }
+  .node { cursor: pointer; }
+  .node rect { fill: white; stroke: black; stroke-width: 1; }
+  .node:hover rect { fill: #eeeeee; }
+  .node.selected rect { fill: black; }
+  .node.selected text { fill: white; }
+  .node.dim { opacity: 0.3; }
+  .nodeid { font-weight: bold; font-size: 12px; }
+  .nodename { font-size: 12px; fill: #555555; }
+</style>
+</head>
+<body>
+
+<div id="top">
+  <h1 id="title">Ontology Explorer</h1>
+  <button id="reload">Reload data</button>
+</div>
+
+<div id="menu"></div>
+<div id="error" class="error" style="display:none"></div>
+<div id="content"></div>
+<div id="detail" style="display:none"></div>
+
+<script>
+// ---------- variables ----------
+var concepts = null;     // the schema (entities, relationships, rules)
+var serverInfo = null;   // where the data came from, counts, ...
+var current = { page: "records", arg: "" };   // the page that is open
+
+var currentType = "";    // records page: which entity type is shown
+var currentRows = [];    // records page: all rows of that type
+var sortColumn = "";     // records page: column the table is sorted by
+var sortAscending = true;
+
+var graphData = null;    // graph page: nodes and edges from the server
+var showAllNodes = false;
+var selectedId = "";
+var GRAPH_LIMIT = 10;    // nodes drawn per type until "Show all" is clicked
+
+// data can come from uploaded files, so escape it before it goes into the page
+function esc(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function clip(text, max) {
+  text = String(text);
+  if (text.length > max) return text.slice(0, max - 1) + "…";
+  return text;
+}
+
+async function api(path, method, body) {
+  var response = await fetch(path, { method: method || "GET", body: body });
+  var data = await response.json();
+  if (!response.ok) {
+    var error = new Error(data.error || "Something went wrong");
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+function showError(message) {
+  var box = document.getElementById("error");
+  box.textContent = message;
+  box.style.display = message ? "block" : "none";
+}
+
+// builds an html table. rows = list of lists, ids = (optional) makes the rows clickable,
+// sortable = (optional) lets the user click the column names to sort
+function makeTable(headers, rows, ids, sortable) {
+  var html = "<table><tr>";
+  for (var i = 0; i < headers.length; i++) {
+    var arrow = "";
+    if (sortable && sortColumn == headers[i]) arrow = sortAscending ? " ▲" : " ▼";
+    if (sortable) {
+      html += "<th data-col=\"" + esc(headers[i]) + "\">" + esc(headers[i]) + arrow + "</th>";
+    } else {
+      html += "<th>" + esc(headers[i]) + "</th>";
+    }
+  }
+  html += "</tr>";
+  if (rows.length == 0) {
+    html += "<tr><td colspan='" + headers.length + "'>Nothing to show.</td></tr>";
+  }
+  for (var r = 0; r < rows.length; r++) {
+    if (ids) {
+      html += "<tr data-id=\"" + esc(ids[r]) + "\">";
+    } else {
+      html += "<tr>";
+    }
+    for (var c = 0; c < rows[r].length; c++) {
+      html += "<td>" + esc(rows[r][c]) + "</td>";
+    }
+    html += "</tr>";
+  }
+  return html + "</table>";
+}
+
+// ---------- menu and pages ----------
+function buildMenu() {
+  var html = "";
+  var types = Object.keys(concepts.entities);
+  for (var i = 0; i < types.length; i++) {
+    var count = serverInfo.fact_counts[types[i]];
+    html += "<a data-page='records' data-arg=\"" + esc(types[i]) + "\">" + esc(types[i]) + " (" + count + ")</a>";
+  }
+  html += "<span class='divider'></span>";
+  html += "<a data-page='graph'>Graph</a>";
+  html += "<a data-page='relationships'>Relationships</a>";
+  if (concepts.rules.length > 0) {
+    html += "<a data-page='derived'>Derived facts</a>";
+  }
+  html += "<a data-page='schema'>Schema</a>";
+  html += "<span class='divider'></span>";
+  html += "<a data-page='import'>Import</a>";
+  document.getElementById("menu").innerHTML = html;
+}
+
+async function showPage(page, arg) {
+  current = { page: page, arg: arg || "" };
+  showError("");
+  document.getElementById("detail").style.display = "none";
+  selectedId = "";
+
+  // mark the open page in the menu
+  var links = document.querySelectorAll("#menu a");
+  for (var i = 0; i < links.length; i++) {
+    var same = links[i].dataset.page == page && (links[i].dataset.arg || "") == current.arg;
+    links[i].className = same ? "active" : "";
+  }
+
+  try {
+    if (page == "records") await pageRecords(current.arg);
+    else if (page == "graph") await pageGraph();
+    else if (page == "relationships") await pageRelationships();
+    else if (page == "derived") await pageDerived();
+    else if (page == "schema") pageSchema();
+    else if (page == "import") await pageImport();
+  } catch (e) {
+    showError(e.message);
+  }
+}
+
+// ----- records -----
+async function pageRecords(type) {
+  var data = await api("/api/entities?type=" + encodeURIComponent(type));
+  currentType = type;
+  currentRows = data.entities;
+  sortColumn = "";
+  sortAscending = true;
+  var def = concepts.entities[type];
+
+  document.getElementById("content").innerHTML =
+    "<h2>" + esc(type) + "</h2>" +
+    "<p class='small'>" + esc(def.description) + "</p>" +
+    "<div class='row'>Filter: <input id='filter' size='25'> <span id='rowcount' class='small'></span></div>" +
+    "<div class='box' id='tablebox'></div>";
+  document.getElementById("filter").addEventListener("input", drawRecords);
+  drawRecords();
+}
+
+function drawRecords() {
+  var def = concepts.entities[currentType];
+  var columns = Object.keys(def.properties);
+  var text = document.getElementById("filter").value.toLowerCase();
+
+  // keep the rows that match the filter
+  var items = [];
+  for (var i = 0; i < currentRows.length; i++) {
+    var row = [];
+    for (var c = 0; c < columns.length; c++) {
+      row.push(currentRows[i][columns[c]]);
+    }
+    if (text == "" || row.join(" ").toLowerCase().indexOf(text) != -1) {
+      items.push({ row: row, id: currentRows[i].entity_id });
+    }
+  }
+
+  // sort them if a column name was clicked
+  if (sortColumn != "") {
+    var col = columns.indexOf(sortColumn);
+    items.sort(function (a, b) {
+      var x = a.row[col];
+      var y = b.row[col];
+      var result;
+      if (typeof x == "number" && typeof y == "number") result = x - y;
+      else result = String(x).localeCompare(String(y), undefined, { numeric: true });
+      return sortAscending ? result : -result;
+    });
+  }
+
+  var rows = [];
+  var ids = [];
+  for (var k = 0; k < items.length; k++) {
+    rows.push(items[k].row);
+    ids.push(items[k].id);
+  }
+  document.getElementById("rowcount").textContent = items.length + " of " + currentRows.length + " rows";
+  document.getElementById("tablebox").innerHTML = makeTable(columns, rows, ids, true);
+  if (selectedId) highlightRow(selectedId);
+}
+
+function highlightRow(id) {
+  var rows = document.querySelectorAll("tr[data-id]");
+  for (var r = 0; r < rows.length; r++) {
+    rows[r].className = rows[r].dataset.id == id ? "selected" : "";
+  }
+}
+
+// ----- details of one record (used by the tables and by the graph) -----
+async function showRecord(id) {
+  var info = await api("/api/neighbors?id=" + encodeURIComponent(id));
+  var attributes = info.attributes || {};
+  selectedId = id;
+
+  var props = [];
+  for (var key in attributes) {
+    if (key != "entity_type" && key != "provenance") props.push([key, attributes[key]]);
+  }
+
+  var html = "<h3>" + esc(id) + " <span class='small'>(" + esc(attributes.entity_type || "") + ")</span></h3>";
+  html += makeTable(["Property", "Value"], props);
+
+  html += "<h3>Outgoing (" + info.outgoing.length + ")</h3>";
+  for (var i = 0; i < info.outgoing.length; i++) {
+    html += "<div>" + esc(info.outgoing[i].relationship) + " &rarr; <span class='link' data-record=\"" + esc(info.outgoing[i].target) + "\">" + esc(info.outgoing[i].target) + "</span></div>";
+  }
+  html += "<h3>Incoming (" + info.incoming.length + ")</h3>";
+  for (var j = 0; j < info.incoming.length; j++) {
+    html += "<div><span class='link' data-record=\"" + esc(info.incoming[j].source) + "\">" + esc(info.incoming[j].source) + "</span> &rarr; " + esc(info.incoming[j].relationship) + "</div>";
+  }
+  if (info.outgoing.length == 0 && info.incoming.length == 0) {
+    html += "<p class='small'>This record has no relationships.</p>";
+  }
+
+  var detail = document.getElementById("detail");
+  detail.innerHTML = html;
+  detail.style.display = "block";
+  detail.scrollIntoView({ block: "nearest" });
+
+  highlightRow(id);
+  highlightGraph(id);
+}
+
+// ----- graph -----
+async function pageGraph() {
+  graphData = await api("/api/graph");
+  document.getElementById("content").innerHTML =
+    "<h2>Graph</h2>" +
+    "<div class='row' id='graphButtons'></div>" +
+    "<div class='graphbox' id='graphbox'></div>";
+  drawGraph();
+}
+
+function svgNode(tag, attributes, text) {
+  var node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (var name in attributes) node.setAttribute(name, attributes[name]);
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+// the second line of a node: its name if it has one, otherwise its first plain property
+function nodeSubtitle(node) {
+  if (node.name) return node.name;
+  if (node.title) return node.title;
+  var def = concepts.entities[node.entity_type];
+  for (var prop in def.properties) {
+    if (prop != def.id_field && def.properties[prop].indexOf("ref:") != 0) return node[prop] === undefined ? "" : node[prop];
+  }
+  return "";
+}
+
+function drawGraph() {
+  var types = graphData.types;
+
+  // which nodes have at least one edge?
+  var connected = {};
+  for (var e = 0; e < graphData.edges.length; e++) {
+    connected[graphData.edges[e].from] = true;
+    connected[graphData.edges[e].to] = true;
+  }
+
+  // pick the nodes to draw: connected ones first, only a few per type unless "Show all"
+  var columnsOfNodes = [];
+  var tooMany = false;
+  for (var t = 0; t < types.length; t++) {
+    var all = [];
+    for (var n = 0; n < graphData.nodes.length; n++) {
+      if (graphData.nodes[n].entity_type == types[t]) all.push(graphData.nodes[n]);
+    }
+    if (all.length > GRAPH_LIMIT) tooMany = true;
+    var ordered = all.filter(function (x) { return connected[x.entity_id]; })
+      .concat(all.filter(function (x) { return !connected[x.entity_id]; }));
+    var picked = showAllNodes ? ordered : ordered.slice(0, GRAPH_LIMIT);
+    // the selected record should always be visible
+    for (var s = 0; s < all.length; s++) {
+      if (all[s].entity_id == selectedId && picked.indexOf(all[s]) == -1) picked.push(all[s]);
+    }
+    columnsOfNodes.push(picked);
+  }
+
+  // button for showing more / fewer nodes
+  var buttons = document.getElementById("graphButtons");
+  buttons.innerHTML = tooMany ? "<button id='toggleNodes'>" + (showAllNodes ? "Show fewer" : "Show all") + "</button>" : "";
+  if (tooMany) {
+    document.getElementById("toggleNodes").addEventListener("click", function () {
+      showAllNodes = !showAllNodes;
+      drawGraph();
+    });
+  }
+
+  // positions
+  var width = 960;
+  var nodeWidth = Math.min(170, (width - 40) / types.length - 50);
+  var nodeHeight = 46;
+  var top = 44;
+  var rows = 1;
+  for (var c = 0; c < columnsOfNodes.length; c++) rows = Math.max(rows, columnsOfNodes[c].length);
+  var height = Math.max(260, rows * (nodeHeight + 26) + top + 10);
+
+  function columnX(index) {
+    if (types.length == 1) return width / 2;
+    return 20 + nodeWidth / 2 + index * ((width - 40 - nodeWidth) / (types.length - 1));
+  }
+  var position = {};
+  var drawn = [];
+  for (var col = 0; col < columnsOfNodes.length; col++) {
+    for (var row = 0; row < columnsOfNodes[col].length; row++) {
+      var node = columnsOfNodes[col][row];
+      position[node.entity_id] = { x: columnX(col), y: top + (row + 0.5) * ((height - top - 8) / columnsOfNodes[col].length) };
+      drawn.push(node);
+    }
+  }
+
+  var svg = svgNode("svg", { id: "graph", viewBox: "0 0 " + width + " " + height });
+  for (var i = 0; i < types.length; i++) {
+    svg.appendChild(svgNode("text", { class: "coltitle", x: columnX(i), y: 24, "text-anchor": "middle" }, types[i]));
+  }
+
+  // edges first so the nodes are drawn on top of them
+  for (var k = 0; k < graphData.edges.length; k++) {
+    var edge = graphData.edges[k];
+    var a = position[edge.from];
+    var b = position[edge.to];
+    if (!a || !b) continue;
+    var d, labelX, labelY;
+    if (Math.abs(a.x - b.x) < 1) {
+      // both ends in the same column: curve out to the side
+      var bow = nodeWidth / 2 + 36;
+      d = "M" + (a.x + nodeWidth / 2) + "," + a.y + " C" + (a.x + bow) + "," + a.y + " " + (b.x + bow) + "," + b.y + " " + (b.x + nodeWidth / 2) + "," + b.y;
+      labelX = a.x + bow * 0.78;
+    } else {
+      var direction = a.x < b.x ? 1 : -1;
+      var x1 = a.x + direction * nodeWidth / 2;
+      var x2 = b.x - direction * nodeWidth / 2;
+      var middle = (x1 + x2) / 2;
+      d = "M" + x1 + "," + a.y + " C" + middle + "," + a.y + " " + middle + "," + b.y + " " + x2 + "," + b.y;
+      labelX = middle;
+    }
+    labelY = (a.y + b.y) / 2 + 3;
+    var path = svgNode("path", { class: "edge", d: d });
+    path.dataset.a = edge.from;
+    path.dataset.b = edge.to;
+    svg.appendChild(path);
+    var label = svgNode("text", { class: "edgelabel", x: labelX, y: labelY, "text-anchor": "middle" }, edge.relationship);
+    label.dataset.a = edge.from;
+    label.dataset.b = edge.to;
+    svg.appendChild(label);
+  }
+
+  for (var m = 0; m < drawn.length; m++) {
+    var p = position[drawn[m].entity_id];
+    var group = svgNode("g", { class: "node", "data-record": drawn[m].entity_id });
+    group.appendChild(svgNode("rect", { x: p.x - nodeWidth / 2, y: p.y - nodeHeight / 2, width: nodeWidth, height: nodeHeight }));
+    group.appendChild(svgNode("text", { class: "nodeid", x: p.x - nodeWidth / 2 + 12, y: p.y - 4 }, clip(drawn[m].entity_id, 22)));
+    group.appendChild(svgNode("text", { class: "nodename", x: p.x - nodeWidth / 2 + 12, y: p.y + 14 }, clip(nodeSubtitle(drawn[m]), 22)));
+    group.appendChild(svgNode("title", {}, drawn[m].entity_id));
+    svg.appendChild(group);
+  }
+
+  var box = document.getElementById("graphbox");
+  box.innerHTML = "";
+  box.appendChild(svg);
+  if (selectedId) highlightGraph(selectedId);
+}
+
+// make the selected node black, fade the nodes that are not connected to it
+function highlightGraph(id) {
+  var svg = document.getElementById("graph");
+  if (!svg || !graphData) return;
+
+  var neighbours = {};
+  neighbours[id] = true;
+  for (var e = 0; e < graphData.edges.length; e++) {
+    if (graphData.edges[e].from == id) neighbours[graphData.edges[e].to] = true;
+    if (graphData.edges[e].to == id) neighbours[graphData.edges[e].from] = true;
+  }
+
+  var nodes = svg.querySelectorAll(".node");
+  for (var i = 0; i < nodes.length; i++) {
+    var nodeId = nodes[i].dataset.record;
+    var classes = "node";
+    if (nodeId == id) classes += " selected";
+    else if (!neighbours[nodeId]) classes += " dim";
+    nodes[i].setAttribute("class", classes);
+  }
+  var lines = svg.querySelectorAll(".edge, .edgelabel");
+  for (var j = 0; j < lines.length; j++) {
+    var base = lines[j].tagName == "path" ? "edge" : "edgelabel";
+    var hot = lines[j].dataset.a == id || lines[j].dataset.b == id;
+    lines[j].setAttribute("class", base + (hot ? " hot" : ""));
+  }
+}
+
+// ----- relationships -----
+async function pageRelationships() {
+  var options = "<option value=''>Any</option>";
+  for (var i = 0; i < concepts.relationships.length; i++) {
+    options += "<option>" + esc(concepts.relationships[i].name) + "</option>";
+  }
+  document.getElementById("content").innerHTML =
+    "<h2>Relationships</h2>" +
+    "<div class='row'>Entity ID: <input id='relEntity' size='12'> &nbsp; Relationship: <select id='relType'>" + options + "</select> <button id='relSearch'>Search</button></div>" +
+    "<div class='box' id='relResult'></div>";
+  document.getElementById("relSearch").addEventListener("click", searchRelationships);
+  document.getElementById("relEntity").addEventListener("keydown", function (e) { if (e.key == "Enter") searchRelationships(); });
+  await searchRelationships();
+}
+
+async function searchRelationships() {
+  var params = new URLSearchParams();
+  var entity = document.getElementById("relEntity").value.trim();
+  var type = document.getElementById("relType").value;
+  if (entity) params.set("entity_id", entity);
+  if (type) params.set("relationship", type);
+  var data = await api("/api/facts?" + params);
+
+  var rows = [];
+  var ids = [];
+  for (var i = 0; i < data.facts.length; i++) {
+    rows.push([data.facts[i].source, data.facts[i].relationship, data.facts[i].target]);
+    ids.push(data.facts[i].source);
+  }
+  document.getElementById("relResult").innerHTML = makeTable(["Source", "Relationship", "Target"], rows, ids);
+}
+
+// ----- derived facts -----
+async function pageDerived() {
+  var options = "";
+  for (var i = 0; i < concepts.rules.length; i++) {
+    options += "<option>" + esc(concepts.rules[i].name) + "</option>";
+  }
+  document.getElementById("content").innerHTML =
+    "<h2>Derived facts</h2>" +
+    "<div class='row'>Rule: <select id='ruleName'>" + options + "</select> &nbsp; Start from: <input id='ruleEntity' size='12' placeholder='optional'> <button id='ruleRun'>Run</button></div>" +
+    "<p id='ruleText' class='small'></p>" +
+    "<div class='box' id='ruleResult'></div>";
+  document.getElementById("ruleRun").addEventListener("click", runRule);
+  document.getElementById("ruleEntity").addEventListener("keydown", function (e) { if (e.key == "Enter") runRule(); });
+  await runRule();
+}
+
+async function runRule() {
+  var params = new URLSearchParams();
+  params.set("rule", document.getElementById("ruleName").value);
+  var entity = document.getElementById("ruleEntity").value.trim();
+  if (entity) params.set("entity_id", entity);
+  var data = await api("/api/derive?" + params);
+
+  document.getElementById("ruleText").textContent = data.error || (data.rule + " (" + data.fact_count + " facts)");
+  var rows = [];
+  var ids = [];
+  var facts = data.facts || [];
+  for (var i = 0; i < facts.length; i++) {
+    rows.push([facts[i].source, facts[i].relationship, facts[i].target, facts[i].via.join(", ")]);
+    ids.push(facts[i].source);
+  }
+  document.getElementById("ruleResult").innerHTML = makeTable(["Source", "Derived", "Target", "Via"], rows, ids);
+}
+
+// ----- schema -----
+function pageSchema() {
+  var html = "<h2>Schema</h2>";
+  var types = Object.keys(concepts.entities);
+  for (var i = 0; i < types.length; i++) {
+    var def = concepts.entities[types[i]];
+    var rows = [];
+    for (var name in def.properties) {
+      var note = "";
+      if (name == def.id_field) note = "identifier";
+      else if (def.properties[name].indexOf("ref:") == 0) note = "references " + def.properties[name].slice(4);
+      rows.push([name, def.properties[name], note]);
+    }
+    html += "<h3>" + esc(types[i]) + "</h3><p class='small'>" + esc(def.description) + "</p>";
+    html += makeTable(["Property", "Type", "Notes"], rows);
+  }
+
+  var relRows = [];
+  for (var r = 0; r < concepts.relationships.length; r++) {
+    var rel = concepts.relationships[r];
+    relRows.push([rel.name, rel.from, rel.to, rel.description]);
+  }
+  html += "<h3>Relationships</h3>" + makeTable(["Name", "From", "To", "Description"], relRows);
+
+  if (concepts.rules.length > 0) {
+    var ruleRows = [];
+    for (var k = 0; k < concepts.rules.length; k++) {
+      ruleRows.push([concepts.rules[k].name, concepts.rules[k].path.join(" -> "), concepts.rules[k].description]);
+    }
+    html += "<h3>Rules</h3>" + makeTable(["Name", "Follows", "Description"], ruleRows);
+  }
+  document.getElementById("content").innerHTML = html;
+}
+
+// ----- import -----
+async function pageImport() {
+  var custom = serverInfo.definition && !serverInfo.definition.is_default;
+  var html = "<h2>Import</h2>" +
+    "<p>Upload files that contain tables (CSV, JSON, Word, PDF, TXT, MD) and an ontology will be built from them. No AI is used.</p>";
+  if (custom) {
+    html += "<p class='error'>You are viewing an imported ontology. <button id='resetBtn'>Restore default ontology</button></p>";
+  }
+  html += "<div class='row'><input type='file' id='fileInput' multiple> <button id='uploadBtn'>Upload</button> <button id='clearBtn'>Remove uploaded files</button></div>" +
+    "<p id='importMessage' class='small'></p>" +
+    "<div id='fileList'></div>" +
+    "<div class='row'>Ontology name: <input id='ontName' value='Imported ontology' size='24'> <button id='analyzeBtn'>Analyze files</button></div>" +
+    "<div id='report'></div>";
+  document.getElementById("content").innerHTML = html;
+
+  document.getElementById("uploadBtn").addEventListener("click", uploadFiles);
+  document.getElementById("clearBtn").addEventListener("click", clearFiles);
+  document.getElementById("analyzeBtn").addEventListener("click", analyzeFiles);
+  if (custom) {
+    document.getElementById("resetBtn").addEventListener("click", async function () {
+      await api("/api/reset", "POST");
+      await loadAll("records");
+    });
+  }
+  await showFileList();
+}
+
+async function showFileList() {
+  var data = await api("/api/uploads");
+  var rows = [];
+  for (var i = 0; i < data.files.length; i++) {
+    rows.push([data.files[i].name, Math.round(data.files[i].size / 1024 * 10) / 10 + " KB"]);
+  }
+  var box = document.getElementById("fileList");
+  box.innerHTML = rows.length > 0 ? makeTable(["Uploaded file", "Size"], rows) : "<p class='small'>No files uploaded yet.</p>";
+}
+
+async function uploadFiles() {
+  var files = document.getElementById("fileInput").files;
+  var message = document.getElementById("importMessage");
+  if (files.length == 0) {
+    message.textContent = "Choose one or more files first.";
+    return;
+  }
+  message.textContent = "Uploading...";
+  try {
+    for (var i = 0; i < files.length; i++) {
+      await api("/api/upload?name=" + encodeURIComponent(files[i].name), "POST", files[i]);
+    }
+    message.textContent = "Uploaded " + files.length + " file(s). Now click Analyze files.";
+    document.getElementById("fileInput").value = "";
+    document.getElementById("report").innerHTML = "";
+  } catch (e) {
+    message.textContent = e.message;
+  }
+  await showFileList();
+}
+
+async function clearFiles() {
+  if (!confirm("Remove all uploaded files? Your current ontology is not changed.")) return;
+  await api("/api/uploads/clear", "POST");
+  document.getElementById("report").innerHTML = "";
+  document.getElementById("importMessage").textContent = "";
+  await showFileList();
+}
+
+function warningsHtml(warnings) {
+  if (!warnings || warnings.length == 0) return "";
+  var html = "<h3>Check these</h3><ul>";
+  for (var i = 0; i < warnings.length; i++) {
+    html += "<li>" + esc(warnings[i]) + "</li>";
+  }
+  return html + "</ul>";
+}
+
+async function analyzeFiles() {
+  var message = document.getElementById("importMessage");
+  var report = document.getElementById("report");
+  var name = document.getElementById("ontName").value.trim() || "Imported ontology";
+  message.textContent = "Analyzing...";
+  report.innerHTML = "";
+  try {
+    var data = await api("/api/infer?name=" + encodeURIComponent(name), "POST");
+    message.textContent = "";
+    showReport(data.report);
+  } catch (e) {
+    message.textContent = "";
+    report.innerHTML = "<p class='error'>" + esc(e.message) + "</p>" + (e.data && e.data.report ? warningsHtml(e.data.report.warnings) : "");
+  }
+}
+
+function showReport(r) {
+  var html = "<h3>What was found</h3>" +
+    "<p>" + r.entities.length + " entity types, " + r.relationships.length + " relationships, " +
+    r.edge_count + " links between records, " + r.rules.length + " suggested rules.</p>";
+  html += warningsHtml(r.warnings);
+
+  var entityRows = [];
+  for (var i = 0; i < r.entities.length; i++) {
+    var e = r.entities[i];
+    var props = [];
+    for (var p = 0; p < e.properties.length; p++) props.push(e.properties[p].name + ": " + e.properties[p].type);
+    entityRows.push([e.entity, e.sources.join(", "), e.rows, e.id_field + " (" + e.id_note + ")", props.join(", ")]);
+  }
+  html += "<h3>Entity types</h3>" + makeTable(["Entity", "From", "Rows", "ID", "Properties"], entityRows);
+
+  if (r.relationships.length > 0) {
+    var relRows = [];
+    for (var j = 0; j < r.relationships.length; j++) {
+      var rel = r.relationships[j];
+      relRows.push([rel.name, rel.from, rel.to, rel.how]);
+    }
+    html += "<h3>Relationships</h3>" + makeTable(["Name", "From", "To", "Built from"], relRows);
+  }
+  if (r.rules.length > 0) {
+    var ruleRows = [];
+    for (var k = 0; k < r.rules.length; k++) ruleRows.push([r.rules[k].name, r.rules[k].path.join(" -> ")]);
+    html += "<h3>Suggested rules</h3>" + makeTable(["Name", "Follows"], ruleRows);
+  }
+
+  html += "<div class='row'><button id='applyBtn'>Use this ontology</button></div>" +
+    "<p class='small'>The MCP server is a separate program. To use the imported ontology there, set " +
+    "ONTOLOGY_PATH=data/generated/ontology.json and SOURCE_ADAPTER=json in the .env file.</p>";
+  document.getElementById("report").innerHTML = html;
+
+  document.getElementById("applyBtn").addEventListener("click", async function () {
+    try {
+      await api("/api/apply", "POST");
+      await loadAll("records");
+    } catch (e) {
+      showError(e.message);
+    }
+  });
+}
+
+// ---------- start ----------
+async function loadAll(page) {
+  serverInfo = await api("/api/status");
+  concepts = await api("/api/concepts");
+  document.getElementById("title").textContent = concepts.ontology_name;
+  document.title = concepts.ontology_name;
+  buildMenu();
+
+  if (page == "records" || !current.page) {
+    var types = Object.keys(concepts.entities);
+    current = types.length > 0 ? { page: "records", arg: types[0] } : { page: "import", arg: "" };
+  }
+  await showPage(current.page, current.arg);
+  if (!serverInfo.source.connected) showError(serverInfo.source.message);
+}
+
+// clicks on the menu, table headings, table rows and links are handled here
+document.getElementById("menu").addEventListener("click", function (e) {
+  var link = e.target.closest("a");
+  if (link) showPage(link.dataset.page, link.dataset.arg);
+});
+
+document.addEventListener("click", function (e) {
+  var heading = e.target.closest("th[data-col]");
+  if (heading) {
+    // clicking the same column again flips the order
+    if (sortColumn == heading.dataset.col) sortAscending = !sortAscending;
+    else { sortColumn = heading.dataset.col; sortAscending = true; }
+    drawRecords();
+    return;
+  }
+  var link = e.target.closest("[data-record]");
+  if (link) {
+    showRecord(link.dataset.record).catch(function (err) { showError(err.message); });
+    return;
+  }
+  var row = e.target.closest("tr[data-id]");
+  if (row) showRecord(row.dataset.id).catch(function (err) { showError(err.message); });
+});
+
+document.getElementById("reload").addEventListener("click", async function () {
+  var button = document.getElementById("reload");
+  button.disabled = true;
+  try {
+    await api("/api/reload", "POST");
+    await loadAll();
+  } catch (e) {
+    showError(e.message);
+  }
+  button.disabled = false;
+});
+
+loadAll("records").catch(function (e) { showError(e.message); });
+</script>
+</body>
+</html>

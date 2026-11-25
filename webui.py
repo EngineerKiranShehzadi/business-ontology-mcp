@@ -9,6 +9,7 @@ server uses. The Import page lets you upload files and build an ontology from th
 
 import argparse
 import json
+import os
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from dotenv import load_dotenv
 
 from inference import SUPPORTED_SUFFIXES, InferenceError, infer_ontology
+from pdf_import import infer_pdf_ontology
 from runtime import OntologyRuntime
 
 PROJECT_DIR = Path(__file__).parent
@@ -72,8 +74,13 @@ def api(path: str, query: dict[str, list[str]], method: str, body: bytes = b"") 
             files = uploaded_files()
             if not files:
                 raise ApiError(400, "Upload at least one file first")
+            state["proposal"] = None
+            mode = arg("mode") or "tables"
+            if mode not in {"tables", "pdf-ai"}:
+                raise ApiError(400, "Unknown import mode")
+            infer = infer_pdf_ontology if mode == "pdf-ai" else infer_ontology
             try:
-                result = infer_ontology(files, name=arg("name") or "Imported ontology")
+                result = infer(files, name=arg("name") or "Imported ontology")
             except InferenceError as exc:
                 raise ApiError(422, {"error": str(exc), "report": exc.report})
             state["proposal"] = result["ontology"]
@@ -129,8 +136,12 @@ class Handler(BaseHTTPRequestHandler):
         """Block other websites from calling this local API (they would send a foreign Origin)."""
         port = self.server.server_address[1]
         allowed = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+        public_origin = os.getenv("WEBUI_PUBLIC_ORIGIN", "").strip().rstrip("/")
+        if public_origin:
+            allowed.add(public_origin)
         origin = self.headers.get("Origin")
-        return (origin is None or origin in allowed) and self.headers.get("Host") in {f"127.0.0.1:{port}", f"localhost:{port}"}
+        hosts = {urlparse(value).netloc for value in allowed}
+        return (origin is None or origin in allowed) and self.headers.get("Host") in hosts
 
     def _handle(self, method: str) -> None:
         url = urlparse(self.path)

@@ -16,6 +16,15 @@ where the facts come from is set with SOURCE_ADAPTER in .env. it can be json (de
 
 the reload_data tool (or the reload button in the web page) re-reads the source without restarting, and REFRESH_INTERVAL_SECONDS does it on a timer.
 
-the import tab in the web page lets you upload csv, json, word, pdf or text files that contain tables and it builds an ontology from them: one entity per table, column types, ids, references between tables and relationships. there is no ai in there, it just follows fixed rules in inference.py, so a pdf with normal sentences gives you nothing. scanned pdfs do not work either, and xlsx files need to be saved as csv first. the mcp server cannot import files, only the web page can, and it needs ONTOLOGY_PATH=data/generated/ontology.json and SOURCE_ADAPTER=json in .env if you want the mcp server to use what you imported.
+The **Import** tab builds an ontology from tables in CSV, JSON, Word, PDF, and text files. Save XLSX files as CSV first. To use an imported ontology in the MCP server, set `ONTOLOGY_PATH=data/generated/ontology.json` and `SOURCE_ADAPTER=json` in `.env`.
+
+### PDF prose extraction
+
+Upload searchable PDFs and select **PDF text (Ollama)**. Analyze the files and review the proposed entity types and relationships before applying. Extracted links retain their source filename and a supporting quote. Each analysis accepts up to 10,000 characters of PDF text. Run OCR on scanned documents before uploading them.
+
+- For local Ollama, set `PDF_LLM_PROVIDER=local` and set `OLLAMA_MODEL` to a model from `ollama list`. The backend uses `127.0.0.1:11434`.
+- For Ollama Cloud, set `PDF_LLM_PROVIDER=cloud`, `OLLAMA_MODEL` to a supported Cloud model, and `OLLAMA_API_KEY` in the backend environment or private `.env`. The backend sends extracted text to Ollama Cloud. Teammates only need a browser to use a shared instance.
+
+To share the app, run it behind an authenticated HTTPS reverse proxy on the same host and set `WEBUI_PUBLIC_ORIGIN` to its public HTTPS origin. The app binds to loopback and the proxy controls access. One instance shares its uploads, pending proposal, and applied ontology across users, so use it as a shared group workspace.
 
 the mcp tools are list_concepts, get_concept, list_entities, query_facts, get_neighbors, derive_facts, get_system_status, reload_data and sync_graph.

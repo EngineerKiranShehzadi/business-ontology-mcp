@@ -597,14 +597,16 @@ function pageSchema() {
 async function pageImport() {
   var custom = serverInfo.definition && !serverInfo.definition.is_default;
   var html = "<h2>Import</h2>" +
-    "<p>Upload files that contain tables (CSV, JSON, Word, PDF, TXT, MD) and an ontology will be built from them. No AI is used.</p>";
+    "<p>Import tables from CSV, JSON, Word, PDF, TXT, or MD. For prose in searchable PDFs, choose AI extraction. Cloud mode sends extracted text to Ollama.</p>";
   if (custom) {
     html += "<p class='error'>You are viewing an imported ontology. <button id='resetBtn'>Restore default ontology</button></p>";
   }
   html += "<div class='row'><input type='file' id='fileInput' multiple> <button id='uploadBtn'>Upload</button> <button id='clearBtn'>Remove uploaded files</button></div>" +
     "<p id='importMessage' class='small'></p>" +
     "<div id='fileList'></div>" +
-    "<div class='row'>Ontology name: <input id='ontName' value='Imported ontology' size='24'> <button id='analyzeBtn'>Analyze files</button></div>" +
+    "<div class='row'><label>Ontology name <input id='ontName' value='Imported ontology' size='24'></label> " +
+    "<label>Import mode <select id='importMode'><option value='tables'>Tables</option><option value='pdf-ai'>PDF text (Ollama)</option></select></label> " +
+    "<button id='analyzeBtn'>Analyze files</button></div>" +
     "<div id='report'></div>";
   document.getElementById("content").innerHTML = html;
 
@@ -672,15 +674,20 @@ async function analyzeFiles() {
   var message = document.getElementById("importMessage");
   var report = document.getElementById("report");
   var name = document.getElementById("ontName").value.trim() || "Imported ontology";
+  var mode = document.getElementById("importMode").value;
+  var button = document.getElementById("analyzeBtn");
+  button.disabled = true;
   message.textContent = "Analyzing...";
   report.innerHTML = "";
   try {
-    var data = await api("/api/infer?name=" + encodeURIComponent(name), "POST");
+    var data = await api("/api/infer?mode=" + mode + "&name=" + encodeURIComponent(name), "POST");
     message.textContent = "";
     showReport(data.report);
   } catch (e) {
     message.textContent = "";
     report.innerHTML = "<p class='error'>" + esc(e.message) + "</p>" + (e.data && e.data.report ? warningsHtml(e.data.report.warnings) : "");
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -706,6 +713,9 @@ function showReport(r) {
       relRows.push([rel.name, rel.from, rel.to, rel.how]);
     }
     html += "<h3>Relationships</h3>" + makeTable(["Name", "From", "To", "Built from"], relRows);
+  }
+  if (r.link_preview && r.link_preview.length > 0) {
+    html += "<h3>Extracted links</h3>" + makeTable(["From", "Relationship", "To", "File", "Evidence"], r.link_preview);
   }
   if (r.rules.length > 0) {
     var ruleRows = [];
